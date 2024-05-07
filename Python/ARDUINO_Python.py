@@ -1,124 +1,82 @@
-import serial  # Package for serial communication
-import serial.tools.list_ports  # Package for listing available serial ports
-from tkinter import *  # Importing all modules from tkinter
-import tkinter as tk  # Importing tkinter and aliasing it as 'tk'
+import serial
+import serial.tools.list_ports
+import tkinter as tk
 
-# Defining the variables
-motRun = "1" # Motor activation flag
-indexA =  "A" # Data start marker
-indexB =  "B" # Speed identifier
-indexC =  "C" # Angle identifier
-indexD =  "D" # Direction marker 
-newLine = "\n" # New line marker
-
-# Define variables for low-pass filter
-alpha = 0.1
-filtered_speed = 0
-
-# Here we are defining the serial port and opening up before sending any data
-serialInst = None
-portVal = "/dev/cu.usbmodem11101"
-
-try:
-    import serial
-    serialInst = serial.Serial(portVal, 9600)
-    print(f"Serial port {portVal} opened successfully.")
-except serial.SerialException as e:
-    print(f"Failed to open serial port {portVal}: {e}")
-
-# Low-pass filter 
-def low_pass_filter(current_speed):
-    global filtered_speed
-    filtered_speed = alpha * current_speed + (1 - alpha) * filtered_speed
-    return filtered_speed
-
-# Sending the data to Serial Port
-def sendData(motDir):
-    global filtered_speed
-    if serialInst:
-        serialInst.write(motRun.encode('utf-8'))
-        serialInst.write(indexA.encode('utf-8'))
-
-        motSpeedInt = slider.get()
-        motSpeedFiltered = int(low_pass_filter(motSpeedInt))
-        motSpeed = str(motSpeedFiltered)
-        serialInst.write(motSpeed.encode('utf-8'))
-        serialInst.write(indexB.encode('utf-8'))
-
-        motAngle = angleSet.get()
-        if motAngle != "":
-            serialInst.write(motAngle.encode('utf-8'))
-            serialInst.write(indexC.encode('utf-8'))
-        else:
-            textAngle.config(text = "Please input angle")
-            root.after(1000, textAngleReset)
-            print("Please input angle")
-        
-        serialInst.write(motDir.encode('utf-8'))
-        serialInst.write(indexD.encode('utf-8'))
-        
-        serialInst.write(newLine.encode('utf-8'))
-
-        confirmTransfer()
-
-        print("Data Sent")
+# Function to move the stepper motor
+def move_custom(direction, steps):
+    global current_position
+    if direction == 'Forward':
+        current_position += steps
+        ser.write(b'A' + str(steps).encode())
     else:
-        print("Serial port not available.")
+        current_position -= steps
+        ser.write(b'B' + str(steps).encode())
 
-# Showing confirmation message that the data has been sent in GUI
-def confirmTransfer():
-    canvas.itemconfig(confirm_text, text = "Data Sent")
-    root.after(1000, confirmTransferReset)
+# Function to stop everything immediately
+def stop_all():
+    ser.write(b'S')  # Send stop command to Arduino
+    ser.flush()  # Flush the serial buffer to ensure the command is sent immediately
 
-# Resetting the confirmation message 
-def confirmTransferReset():
-    canvas.itemconfig(confirm_text, text = "")
-# Resetting the message that request the user to input angle
-def textAngleReset():
-    textAngle.config(text = "")
+# Function to quit the application
+def quit_app():
+    ser.close()  # Close the serial connection
+    root.quit()  # Quit the Tkinter application
 
-# Functions to enable clockwise and anticlockwise rotation and to initiate the transmission of data to serial
-def RotateClockwise():
-    motDir = "Clockwise"
-    sendData(motDir)
-def RotateAnticlockwise():
-    motDir = "Anticlockwise"
-    sendData(motDir)
+# GUI setup
+def create_gui():
+    global root, current_position  # Declare root as a global variable
+    root = tk.Tk()
+    root.title("Stepper Motor Control")
+    current_position = 0
 
-# GUI configuration
-root = Tk()
-root.title("Arduino Controller")
+    forward_button = tk.Button(root, text="Forward 100 steps", command=lambda: move_custom('Forward', 100))
+    forward_button.grid(row=0, column=0, padx=10, pady=10)
 
-# GUI layout
-# Set the width and height of the canvas
-canvas_width = 600
-canvas_height = 450
-# creating the image for the GUI
-motor_img = PhotoImage(file=r"C:\Users\every\OneDrive\Desktop\CODE\StepperMotor_ROHS.png")
-canvas = Canvas(width=canvas_width, height=canvas_height)  # Adjust width and height as needed
-canvas.create_image(canvas_width/2, canvas_height/2, image=motor_img)  # Center the image
-canvas.grid(row=0, column=0, columnspan=2)
-confirm_text = canvas.create_text(canvas_width/2, canvas_height/2, text="", fill="red", font=("Courier", 20, "bold"))  # Center the text
-# Creating a label and slider to control the speed of the motor
-speedLabel = Label(root, text="Speed (in RPM)")
-speedLabel.grid(row=1, column=0)
-slider = Scale(root, from_=1, to=9, length=300, tickinterval=1, orient=HORIZONTAL)
-slider.set(4)
-slider.grid(row=2, column=0, columnspan=2)
-# Creating a label and entry box to set the angle of rotation for the motor
-angleLabel = Label(root, text="Angle (in deg)")
-angleLabel.grid(row=3, column=0)
-angleSet = Entry(root, width=10)
-angleSet.grid(row=3, column=1)
-# Creating the text box, which activates when no angle input available
-textAngle = Label(root, text="", fg="red")
-textAngle.grid(row=4, column=1)
-# Creating the buttons to set the direction of the rotation and to transmit data to the serial
-btn_forward = tk.Button(root, text="Clockwise", command=RotateClockwise)
-btn_forward.grid(row=5, column=0)
+    backward_button = tk.Button(root, text="Backward 100 steps", command=lambda: move_custom('Backward', 100))
+    backward_button.grid(row=0, column=1, padx=10, pady=10)
 
-btn_backward = tk.Button(root, text="Anticlockwise", command=RotateAnticlockwise)
-btn_backward.grid(row=5, column=1)
-# Defining the size of the window and looping through to maintain the interface
-root.geometry(f"{canvas_width}x{canvas_height + 200}")  # Adjust height to accommodate buttons and labels
-root.mainloop()
+    custom_button = tk.Button(root, text="Custom Steps", command=custom_steps)
+    custom_button.grid(row=1, columnspan=2, padx=10, pady=10)
+
+    quit_button = tk.Button(root, text="Quit", command=quit_app)
+    quit_button.grid(row=2, columnspan=2, padx=10, pady=10)
+
+    root.mainloop()
+
+# Function to handle custom steps input
+def custom_steps():
+    custom_window = tk.Toplevel(root)
+    custom_window.title("Custom Steps")
+
+    direction_label = tk.Label(custom_window, text="Direction:")
+    direction_label.grid(row=0, column=0, padx=10, pady=10)
+
+    direction_var = tk.StringVar(value="Forward")
+    direction_menu = tk.OptionMenu(custom_window, direction_var, "Forward", "Backward")
+    direction_menu.grid(row=0, column=1, padx=10, pady=10)
+
+    steps_label = tk.Label(custom_window, text="Steps:")
+    steps_label.grid(row=1, column=0, padx=10, pady=10)
+
+    steps_entry = tk.Entry(custom_window)
+    steps_entry.grid(row=1, column=1, padx=10, pady=10)
+
+    confirm_button = tk.Button(custom_window, text="Move", command=lambda: move_custom(direction_var.get(), int(steps_entry.get())))
+    confirm_button.grid(row=2, columnspan=2, padx=10, pady=10)
+
+# Get the Arduino port
+def get_arduino_port():
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        if 'COM3' in port.device:  # Adjust COM port according to your setup
+            return port.device
+    return None
+
+# Main
+arduino_port = get_arduino_port()
+if arduino_port:
+    ser = serial.Serial(arduino_port, baudrate=9600, timeout=1)
+    create_gui()
+else:
+    print('Arduino not found on any port!')
+
